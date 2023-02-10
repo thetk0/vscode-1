@@ -362,7 +362,7 @@ suite('ContextKeyExpr', () => {
 		checkNegate('a<=b', 'a > b');
 	});
 
-	test('issue #111899: context keys can use `<` or `>` ', () => {
+	test('issue #111899: context keys can use `<` or `>` ', () => { // Important Ulugbek: this is not true because parsing for comparison operators checks that context keys don't include `<`, `=` or `>` symbols
 		const actual = ContextKeyExpr.deserialize('editorTextFocus && vim.active && vim.use<C-r>')!;
 		assert.ok(actual.equals(
 			ContextKeyExpr.and(
@@ -371,5 +371,43 @@ suite('ContextKeyExpr', () => {
 				ContextKeyExpr.has('vim.use<C-r>'),
 			)!
 		));
+	});
+
+	test('My tests', () => {
+		// these comments document old parser behavior on interesting cases:
+
+		// !isEditor < true // {"key":"!isEditor","value":"completed","negated":null,"type":4}
+
+		// vim<=> <= 2 // {"key":"vim<=> <= 2","negated":null,"type":2}
+
+		// debugState == \"stopped\" // {"key":"debugState","value":"\"stopped\"","negated":null,"type":4}
+
+		// view === extension.vsKubernetesHelmRepoExplorer // {"key":"view","value":"= extension.vsKubernetesHelmRepoExplorer","negated":null,"type":4}
+
+		// !explorerResourceIsFolder && resource =~ //FileCabinet/(SuiteApps|SuiteScripts|Templates/(E-mail%20Templates|Marketing%20Templates)|Web%20Site%20Hosting%20Files)/.+$/
+		// {"expr":[{"key":{"key":"explorerResourceIsFolder","negated":{"key":{"key":"explorerResourceIsFolder","negated":null,"type":2},"negated":null,"type":3},"type":2},"negated":{"key":{"key":"explorerResourceIsFolder","negated":null,"type":2},"negated":null,"type":3},"type":3},{"key":"resource","regexp":{},"type":7,"negated":null}],"negated":null,"type":6}
+
+		// config.bsqm.tools.git !=  // config.bsqm.tools.git != ''
+
+		// editorLangId == javascript && resourceFilename =~ background // (editorLangId == 'javascript' && resourceFilename =~ /invalid/)
+
+		// view == duffle.credentialExplorer && viewItem = duffle.credentialset // {"expr":[{"key":"viewItem = duffle.credentialset","negated":{"key":{"key":"viewItem = duffle.credentialset","negated":null,"type":2},"negated":null,"type":3},"type":2},{"key":"view","value":"duffle.credentialExplorer","negated":null,"type":4}],"negated":null,"type":6}
+
+		const t = ContextKeyExpr.deserialize('view == duffle.credentialExplorer && viewItem = duffle.credentialset')!;
+		console.log(t.serialize());
+		console.log(JSON.stringify(t));
+
+
+		// const actual = ContextKeyExpr.deserialize(`!explorerResourceIsFolder && resource =~ //FileCabinet/(SuiteApps|SuiteScripts|Templates/(E-mail%20Templates|Marketing%20Templates)|Web%20Site%20Hosting%20Files)/.+$/`)!;
+		// console.log(actual.serialize());
+		// console.log(JSON.stringify(actual));
+
+		// const actual2 = ContextKeyExpr.deserialize(`!explorerResourceIsFolder && resource =~ /\/FileCabinet\/(SuiteApps|SuiteScripts|Templates\/(E-mail%20Templates|Marketing%20Templates)|Web%20Site%20Hosting%20Files)\/.+$/`)!;
+		// console.log(actual2.serialize());
+
+		// assert.equal(actual.serialize(), actual2.serialize());
+
+		// assert.ok(false);
+
 	});
 });

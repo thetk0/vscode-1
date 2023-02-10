@@ -8,6 +8,15 @@ import { isChrome, isEdge, isFirefox, isLinux, isMacintosh, isSafari, isWeb, isW
 import { isFalsyOrWhitespace } from 'vs/base/common/strings';
 import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
 
+// ULUGBEK IMPORTANT FIXME: I broke the ContextKeyNotExpr - fix this
+// it's broken because it now accepts arbitrary negation
+// - either return & unwrap parenthesized negation
+// - or add proper support
+
+// Ulugbek FIXME: current normalization does not take into account
+// sub-expressions that may take and/or expressions
+// ie they optimize `false && isEnabled` but can't `(false && isEnabled) || isMac`
+
 const CONSTANT_VALUES = new Map<string, boolean>();
 CONSTANT_VALUES.set('false', false);
 CONSTANT_VALUES.set('true', true);
@@ -102,7 +111,7 @@ export abstract class ContextKeyExpr {
 	public static notIn(key: string, value: string): ContextKeyExpression {
 		return ContextKeyNotInExpr.create(key, value);
 	}
-	public static not(key: string): ContextKeyExpression {
+	public static not(key: string | ContextKeyExpression): ContextKeyExpression {
 		return ContextKeyNotExpr.create(key);
 	}
 	public static and(...expr: Array<ContextKeyExpression | undefined | null>): ContextKeyExpression | undefined {
@@ -147,12 +156,12 @@ export abstract class ContextKeyExpr {
 
 		if (serializedOne.indexOf('!=') >= 0) {
 			const pieces = serializedOne.split('!=');
-			return ContextKeyNotEqualsExpr.create(pieces[0].trim(), this._deserializeValue(pieces[1], strict));
+			return ContextKeyNotEqualsExpr.create(pieces[0].trim(), this._deserializeValue(pieces[1]));
 		}
 
 		if (serializedOne.indexOf('==') >= 0) {
 			const pieces = serializedOne.split('==');
-			return ContextKeyEqualsExpr.create(pieces[0].trim(), this._deserializeValue(pieces[1], strict));
+			return ContextKeyEqualsExpr.create(pieces[0].trim(), this._deserializeValue(pieces[1]));
 		}
 
 		if (serializedOne.indexOf('=~') >= 0) {
@@ -160,14 +169,14 @@ export abstract class ContextKeyExpr {
 			return ContextKeyRegexExpr.create(pieces[0].trim(), this._deserializeRegexValue(pieces[1], strict));
 		}
 
-		if (serializedOne.indexOf(' not in ') >= 0) {
+		if (serializedOne.indexOf(' not in ') >= 0) { // careful: this must come before `in`
 			const pieces = serializedOne.split(' not in ');
-			return ContextKeyNotInExpr.create(pieces[0].trim(), this._deserializeValue(pieces[1], strict));
+			return ContextKeyNotInExpr.create(pieces[0].trim(), this._deserializeValue(pieces[1]));
 		}
 
 		if (serializedOne.indexOf(' in ') >= 0) {
 			const pieces = serializedOne.split(' in ');
-			return ContextKeyInExpr.create(pieces[0].trim(), this._deserializeValue(pieces[1], strict));
+			return ContextKeyInExpr.create(pieces[0].trim(), this._deserializeValue(pieces[1]));
 		}
 
 		if (/^[^<=>]+>=[^<=>]+$/.test(serializedOne)) {
@@ -190,14 +199,14 @@ export abstract class ContextKeyExpr {
 			return ContextKeySmallerExpr.create(pieces[0].trim(), pieces[1].trim());
 		}
 
-		if (/^\!\s*/.test(serializedOne)) {
+		if (/^\!\s*/.test(serializedOne)) { // Ulugbek TODO: understand this regex
 			return ContextKeyNotExpr.create(serializedOne.substr(1).trim());
 		}
 
 		return ContextKeyDefinedExpr.create(serializedOne);
 	}
 
-	private static _deserializeValue(serializedValue: string, strict: boolean): any {
+	private static _deserializeValue(serializedValue: string): any {
 		serializedValue = serializedValue.trim();
 
 		if (serializedValue === 'true') {
@@ -407,10 +416,11 @@ export class ContextKeyDefinedExpr implements IContextKeyExpression {
 	}
 
 	public negate(): ContextKeyExpression {
-		if (!this.negated) {
-			this.negated = ContextKeyNotExpr.create(this.key, this);
-		}
-		return this.negated;
+		// if (!this.negated) {
+		// 	this.negated = ContextKeyNotExpr.create(this.key);
+		// }
+		// return this.negated;
+		return ContextKeyNotExpr.create(this.key);
 	}
 }
 
@@ -686,20 +696,41 @@ export class ContextKeyNotEqualsExpr implements IContextKeyExpression {
 }
 
 export class ContextKeyNotExpr implements IContextKeyExpression {
+	public get negated(): ContextKeyExpression | null {
+		return this._negated;
+	}
+	public set negated(value: ContextKeyExpression | null) {
+		this._negated = value;
+	}
 
-	public static create(key: string, negated: ContextKeyExpression | null = null): ContextKeyExpression {
-		const constantValue = CONSTANT_VALUES.get(key);
-		if (typeof constantValue === 'boolean') {
-			return (constantValue ? ContextKeyFalseExpr.INSTANCE : ContextKeyTrueExpr.INSTANCE);
+	public static create(key: string | ContextKeyExpression, negated: ContextKeyExpression | null = null): ContextKeyExpression {
+		if (typeof key === 'string') {
+			const constantValue = CONSTANT_VALUES.get(key);
+			if (typeof constantValue === 'boolean') {
+				return (constantValue ? ContextKeyFalseExpr.INSTANCE : ContextKeyTrueExpr.INSTANCE);
+			}
+			return new ContextKeyNotExpr(ContextKeyExpr.has(key), negated);
+		} else {
+			if (key instanceof ContextKeyTrueExpr) { // !true => false
+				return ContextKeyFalseExpr.INSTANCE;
+			} else if (key instanceof ContextKeyFalseExpr) { // !false => true
+				return ContextKeyTrueExpr.INSTANCE;
+			} else if (key instanceof ContextKeyDefinedExpr) { // !CONSTANT_VALUE => true|false
+				const constantValue = CONSTANT_VALUES.get(key.key);
+				if (typeof constantValue === 'boolean') {
+					return (constantValue ? ContextKeyFalseExpr.INSTANCE : ContextKeyTrueExpr.INSTANCE);
+				}
+				return new ContextKeyNotExpr(key, negated);
+			} // TODO@ulugbekna: here we can unwrap parenthesized expressions, eg !(a && b) => !a || !b or !(a || b) => !a && !b
+			return new ContextKeyNotExpr(key, negated);
 		}
-		return new ContextKeyNotExpr(key, negated);
 	}
 
 	public readonly type = ContextKeyExprType.Not;
 
 	private constructor(
-		private readonly key: string,
-		private negated: ContextKeyExpression | null
+		private readonly key: ContextKeyExpression,
+		private _negated: ContextKeyExpression | null
 	) {
 	}
 
@@ -707,7 +738,8 @@ export class ContextKeyNotExpr implements IContextKeyExpression {
 		if (other.type !== this.type) {
 			return this.type - other.type;
 		}
-		return cmp1(this.key, other.key);
+
+		return this.key.cmp(other.key);
 	}
 
 	public equals(other: ContextKeyExpression): boolean {
@@ -717,35 +749,34 @@ export class ContextKeyNotExpr implements IContextKeyExpression {
 		return false;
 	}
 
-	public substituteConstants(): ContextKeyExpression | undefined {
-		const constantValue = CONSTANT_VALUES.get(this.key);
-		if (typeof constantValue === 'boolean') {
-			return (constantValue ? ContextKeyFalseExpr.INSTANCE : ContextKeyTrueExpr.INSTANCE);
-		}
-		return this;
+	public substituteConstants(): ContextKeyExpression | undefined { // FIXME@ulugbekna
+		return this.key.substituteConstants();
 	}
 
 	public evaluate(context: IContext): boolean {
-		return (!context.getValue(this.key));
+		return !this.key.evaluate(context);
 	}
 
 	public serialize(): string {
-		return `!${this.key}`;
+		return `!${typeof this.key === 'string' ? this.key : this.key.serialize()}`;
 	}
 
 	public keys(): string[] {
-		return [this.key];
+		return this.key.keys();
 	}
 
 	public map(mapFnc: IContextKeyExprMapper): ContextKeyExpression {
-		return mapFnc.mapNot(this.key);
+		// TODO@ulugbekna
+		return mapFnc.mapNot('TODO');
+
 	}
 
 	public negate(): ContextKeyExpression {
-		if (!this.negated) {
-			this.negated = ContextKeyDefinedExpr.create(this.key, this);
-		}
-		return this.negated;
+		// if (!this.negated) {
+		// 	this.negated = this.key.negate();
+		// }
+		// return this.negated;
+		return this.key.negate(); // FIXME
 	}
 }
 
@@ -1185,7 +1216,7 @@ class ContextKeyAndExpr implements IContextKeyExpression {
 		if (this.expr.length > other.expr.length) {
 			return 1;
 		}
-		for (let i = 0, len = this.expr.length; i < len; i++) {
+		for (let i = 0, len = this.expr.length; i < len; i++) { // Ulugbek: I think this must work only if the arrays are sorted (or normalized)
 			const r = cmp(this.expr[i], other.expr[i]);
 			if (r !== 0) {
 				return r;
@@ -1333,7 +1364,7 @@ class ContextKeyAndExpr implements IContextKeyExpression {
 	}
 
 	public serialize(): string {
-		return this.expr.map(e => e.serialize()).join(' && ');
+		return `(${this.expr.map(e => e.serialize()).join(' && ')})`;
 	}
 
 	public keys(): string[] {
@@ -1426,13 +1457,13 @@ class ContextKeyOrExpr implements IContextKeyExpression {
 		return false;
 	}
 
+	// ULUGBEK: FIXME: I think we should normalize sub-expressions ? or come up with a better optimizer in general that would work for the whole syntax tree
 	private static _normalizeArr(arr: ReadonlyArray<ContextKeyExpression | null | undefined>, negated: ContextKeyExpression | null, extraRedundantCheck: boolean): ContextKeyExpression | undefined {
 		let expr: ContextKeyExpression[] = [];
 		let hasFalse = false;
 
 		if (arr) {
-			for (let i = 0, len = arr.length; i < len; i++) {
-				const e = arr[i];
+			for (const e of arr) {
 				if (!e) {
 					continue;
 				}
@@ -1503,7 +1534,7 @@ class ContextKeyOrExpr implements IContextKeyExpression {
 	}
 
 	public serialize(): string {
-		return this.expr.map(e => e.serialize()).join(' || ');
+		return `(${this.expr.map(e => e.serialize()).join(' || ')})`;
 	}
 
 	public keys(): string[] {
