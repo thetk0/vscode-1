@@ -43,10 +43,12 @@ if (!/yarn[\w-.]*\.c?js$|yarnpkg$/.test(process.env['npm_execpath'])) {
 }
 
 if (process.platform === 'win32') {
-	if (!hasSupportedVisualStudioVersion()) {
+	const vsPath = findSupportedVisualStudioVersion();
+	if (!vsPath) {
 		console.error('\033[1;31m*** Invalid C/C++ Compiler Toolchain. Please check https://github.com/microsoft/vscode/wiki/How-to-Contribute#prerequisites.\033[0;0m');
 		err = true;
 	}
+	enableSpectreMode(vsPath);
 	if (!err) {
 		installHeaders();
 	}
@@ -57,42 +59,53 @@ if (err) {
 	process.exit(1);
 }
 
-function hasSupportedVisualStudioVersion() {
-	const fs = require('fs');
-	const path = require('path');
+function enableSpectreMode(vsPath) {
+	const auxPath = path.join(vsPath, 'VC/Auxiliary/Build/vcvarsall.bat');
+	if (!fs.existsSync(auxPath)) {
+		console.error('\033[1;31m*** vcvarsall.bat not found. Please check https://github.com/microsoft/vscode/wiki/How-to-Contribute#prerequisites.\033[0;0m')
+		return;
+	}
+	const proc = cp.spawnSync(auxPath, ['-vcvars_spectre_libs=spectre_mode']);
+	if (proc.status) {
+		console.error('vcvarsall.bat returned status ' + proc.status);
+	}
+}
+
+function findAvailableVSPathForVersion(programFilesPath, version) {
+	if (!programFilesPath) {
+		return null;
+	}
+	const vsPath = `${programFilesPath}/Microsoft Visual Studio/${version}`;
+	const vsTypes = ['Enterprise', 'Professional', 'Community', 'Preview', 'BuildTools'];
+	for (const vsType of vsTypes) {
+		const combined = path.join(vsPath, vsType);
+		if (fs.existsSync(combined)) {
+			return combined;
+		}
+	}
+	return null;
+}
+
+function findSupportedVisualStudioVersion() {
 	// Translated over from
 	// https://source.chromium.org/chromium/chromium/src/+/master:build/vs_toolchain.py;l=140-175
 	const supportedVersions = ['2022', '2019', '2017'];
 
-	const availableVersions = [];
 	for (const version of supportedVersions) {
 		let vsPath = process.env[`vs${version}_install`];
 		if (vsPath && fs.existsSync(vsPath)) {
-			availableVersions.push(version);
-			break;
+			return vsPath;
 		}
 		const programFiles86Path = process.env['ProgramFiles(x86)'];
 		const programFiles64Path = process.env['ProgramFiles'];
-
-		if (programFiles64Path) {
-			vsPath = `${programFiles64Path}/Microsoft Visual Studio/${version}`;
-			const vsTypes = ['Enterprise', 'Professional', 'Community', 'Preview', 'BuildTools'];
-			if (vsTypes.some(vsType => fs.existsSync(path.join(vsPath, vsType)))) {
-				availableVersions.push(version);
-				break;
-			}
-		}
-
-		if (programFiles86Path) {
-			vsPath = `${programFiles86Path}/Microsoft Visual Studio/${version}`;
-			const vsTypes = ['Enterprise', 'Professional', 'Community', 'Preview', 'BuildTools'];
-			if (vsTypes.some(vsType => fs.existsSync(path.join(vsPath, vsType)))) {
-				availableVersions.push(version);
-				break;
+		for (const path of [programFiles64Path, programFiles86Path]) {
+			const vsPath = findAvailableVSPathForVersion(path, version);
+			if (vsPath) {
+				return vsPath;
 			}
 		}
 	}
-	return availableVersions.length;
+	return null;
 }
 
 function installHeaders() {
@@ -109,7 +122,7 @@ function installHeaders() {
 	}
 
 	// The node gyp package got installed using the above yarn command using the gyp/package.json
-	// file checked into our repository. So from that point it is save to construct the path
+	// file checked into our repository. So from that point it is safe to construct the path
 	// to that executable
 	const node_gyp = path.join(__dirname, 'gyp', 'node_modules', '.bin', 'node-gyp.cmd');
 	const result = cp.execFileSync(node_gyp, ['list'], { encoding: 'utf8' });
