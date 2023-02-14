@@ -49,9 +49,7 @@ import { IResolveAuthorityErrorResult } from 'vs/workbench/services/extensions/c
 import { URI } from 'vs/base/common/uri';
 import { ILocalProcessExtensionHostDataProvider, ILocalProcessExtensionHostInitData, NativeLocalProcessExtensionHost } from 'vs/workbench/services/extensions/electron-sandbox/localProcessExtensionHost';
 import { IUserDataProfileService } from 'vs/workbench/services/userDataProfile/common/userDataProfile';
-import { LegacyNativeLocalProcessExtensionHost } from 'vs/workbench/services/extensions/electron-sandbox/nativeLocalProcessExtensionHost';
 import { InstantiationType, registerSingleton } from 'vs/platform/instantiation/common/extensions';
-import { process } from 'vs/base/parts/sandbox/electron-sandbox/globals';
 import { IWorkbenchIssueService } from 'vs/workbench/services/issue/common/issue';
 
 export class NativeExtensionService extends AbstractExtensionService implements IExtensionService {
@@ -241,10 +239,6 @@ export class NativeExtensionService extends AbstractExtensionService implements 
 	protected _createExtensionHost(runningLocation: ExtensionRunningLocation, isInitialStart: boolean): IExtensionHost | null {
 		switch (runningLocation.kind) {
 			case ExtensionHostKind.LocalProcess: {
-				if (!process.sandboxed) {
-					// TODO@bpasero remove me once electron utility process has landed
-					return this._instantiationService.createInstance(LegacyNativeLocalProcessExtensionHost, runningLocation, this._createLocalExtensionHostDataProvider(isInitialStart, runningLocation));
-				}
 				return this._instantiationService.createInstance(NativeLocalProcessExtensionHost, runningLocation, this._createLocalExtensionHostDataProvider(isInitialStart, runningLocation));
 			}
 			case ExtensionHostKind.LocalWebWorker: {
