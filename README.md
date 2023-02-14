@@ -1,4 +1,4 @@
-Please donate to Tsang Tak Kit's Hong Kong HSBC Bank Account:634844526833!I want to earn money from this Project as one of the Developer!
+Please donate to Tsang Tak Kit's Hong Kong HSBC Bank Account:634844526833! I want to earn money from this Project as one of the Developer!
 https://instagram.com/tsangtakkit
 
 # Visual Studio Code - Open Source ("Code - OSS")
