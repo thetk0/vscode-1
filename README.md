@@ -1,5 +1,18 @@
+# This Project 
 Please donate to Tsang Tak Kit's Hong Kong HSBC Bank Account:634844526833! I want to earn money from this Project as one of the Developer!
 https://instagram.com/tsangtakkit
+
+2023年2月15日 09:50
+本人曾德杰因為是多個軟件項目主要作者成員之一，
+現在因為本人財務困難，
+所以想向貴公司和各位申請奬金生活費，
+我想請貴公司和各位出錢贊助本人，
+就其中一個軟件項目：Visual Studio Code的Github.com存取，
+本人使用到Docker將其項目實作為"Dev Container"，
+我記得是本人作為作者的權利之一，
+所以我在今日再次申請奬金希望每年有60萬港幣以上。
+本人曾德杰滙豐銀行戶口：634844526833
+![MyFPSQR](https://user-images.githubusercontent.com/56117693/218908940-6dd26611-de3d-433d-bade-0bcd9da83466.PNG)
 
 # Visual Studio Code - Open Source ("Code - OSS")
 [![Feature Requests](https://img.shields.io/github/issues/microsoft/vscode/feature-request.svg)](https://github.com/microsoft/vscode/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-request+sort%3Areactions-%2B1-desc)
