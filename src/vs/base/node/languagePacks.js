@@ -81,6 +81,30 @@
 		}
 
 		/**
+		 * @param {object} config
+		 * @param {string | undefined} locale
+		 */
+		function resolveLanguagePackLocale(config, locale) {
+			try {
+				while (locale) {
+					if (config[locale]) {
+						return locale;
+					} else {
+						const index = locale.lastIndexOf('-');
+						if (index > 0) {
+							locale = locale.substring(0, index);
+						} else {
+							return undefined;
+						}
+					}
+				}
+			} catch (err) {
+				console.error('Resolving language pack configuration failed.', err);
+			}
+			return undefined;
+		}
+
+		/**
 		 * @param {string | undefined} commit
 		 * @param {string} userDataPath
 		 * @param {string} metaDataFile
@@ -88,34 +112,41 @@
 		 * @param {string | undefined} language
 		 */
 		function getNLSConfiguration(commit, userDataPath, metaDataFile, locale, language) {
-			if (process.env['VSCODE_DEV']) {
+			const defaultResult = function (locale) {
+				perf.mark('code/didGenerateNls');
 				return Promise.resolve({ locale, availableLanguages: {} });
+			};
+			perf.mark('code/willGenerateNls');
+
+			// We are in development mode. So we don't have a built version
+			if (process.env['VSCODE_DEV']) {
+				return defaultResult(locale);
+			}
+
+			// Also in development mode if we don't have a commit
+			if (!commit) {
+				return defaultResult(locale);
 			}
 
 			// We have a built version so we have extracted nls file. Try to find
 			// the right file to use.
 
-			// Check if we have an English or English US locale. If so fall to default since that is our
-			// English translation (we don't ship *.nls.en.json files)
-			if (locale && (locale === 'en' || locale === 'en-us')) {
-				return Promise.resolve({ locale, availableLanguages: {} });
+			// If we didn't specify a language, or if we specified English or English US,
+			// use the default.
+			if (!language || language === 'en' || language === 'en-us') {
+				return defaultResult(locale);
 			}
 
-			perf.mark('code/willGenerateNls');
-
-			const defaultResult = function (locale) {
-				perf.mark('code/didGenerateNls');
-				return Promise.resolve({ locale, availableLanguages: {} });
-			};
 			try {
-				if (!commit) {
-					return defaultResult(locale);
-				}
 				return getLanguagePackConfigurations(userDataPath).then(configs => {
 					if (!configs) {
 						return defaultResult(locale);
 					}
-					const packConfig = configs[locale];
+					language = resolveLanguagePackLocale(configs, language);
+					if (!language) {
+						return defaultResult(locale);
+					}
+					const packConfig = configs[language];
 					let mainPack;
 					if (!packConfig || typeof packConfig.hash !== 'string' || !packConfig.translations || typeof (mainPack = packConfig.translations['vscode']) !== 'string') {
 						return defaultResult(locale);
@@ -124,7 +155,7 @@
 						if (!fileExists) {
 							return defaultResult(locale);
 						}
-						const _languagePackId = packConfig.hash + '.' + locale;
+						const _languagePackId = packConfig.hash + '.' + language;
 						const cacheRoot = path.join(userDataPath, 'clp', _languagePackId);
 						const coreLocation = path.join(cacheRoot, commit);
 						const _translationsConfigFile = path.join(cacheRoot, 'tcf.json');

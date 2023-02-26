@@ -206,10 +206,10 @@ export class UtilityProcess extends Disposable {
 		const serviceName = `${this.configuration.type}-${this.id}`;
 		const modulePath = FileAccess.asFileUri('bootstrap-fork.js').fsPath;
 		const args = this.configuration.args ?? [];
-		const execArgv = [...this.configuration.execArgv ?? [], `--vscode-utility-kind=${this.configuration.type}`];
+		const execArgv = this.configuration.execArgv ?? []; // TODO@deepak1556 this should be [...this.configuration.execArgv ?? [], `--vscode-utility-kind=${this.configuration.type}`] but is causing https://github.com/microsoft/vscode/issues/154549
 		const allowLoadingUnsignedLibraries = this.configuration.allowLoadingUnsignedLibraries;
 		const stdio = 'pipe';
-		const env = this.createEnv(configuration);
+		const env = this.createEnv(configuration, isWindowSandboxed);
 
 		this.log('creating new...', Severity.Info);
 
@@ -228,14 +228,18 @@ export class UtilityProcess extends Disposable {
 		return true;
 	}
 
-	private createEnv(configuration: IUtilityProcessConfiguration): { [key: string]: any } {
+	private createEnv(configuration: IUtilityProcessConfiguration, isWindowSandboxed: boolean): { [key: string]: any } {
 		const env: { [key: string]: any } = configuration.env ? { ...configuration.env } : { ...deepClone(process.env) };
 
-		// Apply support environment variables from config
+		// Apply supported environment variables from config
 		env['VSCODE_AMD_ENTRYPOINT'] = configuration.entryPoint;
 		if (typeof configuration.parentLifecycleBound === 'number') {
 			env['VSCODE_PARENT_PID'] = String(configuration.parentLifecycleBound);
 		}
+		if (isWindowSandboxed) {
+			env['VSCODE_CRASH_REPORTER_SANDBOXED_HINT'] = '1'; // TODO@bpasero remove me once sandbox is final
+		}
+		env['VSCODE_CRASH_REPORTER_PROCESS_TYPE'] = configuration.type;
 
 		// Remove any environment variables that are not allowed
 		removeDangerousEnvVariables(env);
