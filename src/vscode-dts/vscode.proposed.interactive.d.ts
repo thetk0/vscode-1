@@ -44,7 +44,20 @@ declare module 'vscode' {
 
 	export interface InteractiveSessionState { }
 
+	export interface InteractiveSessionParticipantInformation {
+		name: string;
+
+		/**
+		 * A full URI for the icon of the participant.
+		 */
+		icon?: Uri;
+	}
+
 	export interface InteractiveSession {
+		// TODO Will be required
+		requester?: InteractiveSessionParticipantInformation;
+		responder?: InteractiveSessionParticipantInformation;
+
 		saveState?(): InteractiveSessionState;
 	}
 
@@ -58,25 +71,40 @@ declare module 'vscode' {
 		message: string;
 	}
 
-	export interface InteractiveResponse {
-		content: string;
-		followups?: string[];
+	export interface InteractiveResponseErrorDetails {
+		message: string;
+		responseIsIncomplete?: boolean;
 	}
 
 	export interface InteractiveResponseForProgress {
 		followups?: string[];
+		commands?: InteractiveResponseCommand[];
+		errorDetails?: InteractiveResponseErrorDetails;
 	}
 
 	export interface InteractiveProgress {
 		content: string;
 	}
 
+	export interface InteractiveResponseCommand {
+		commandId: string;
+		args: any[];
+		title: string; // supports codicon strings
+	}
+
+	export interface InteractiveSessionSlashCommand {
+		command: string;
+		kind: CompletionItemKind;
+		detail?: string;
+	}
+
 	export interface InteractiveSessionProvider {
 		provideInitialSuggestions?(token: CancellationToken): ProviderResult<string[]>;
+		provideSlashCommands?(session: InteractiveSession, token: CancellationToken): ProviderResult<InteractiveSessionSlashCommand[]>;
+
 		prepareSession(initialState: InteractiveSessionState | undefined, token: CancellationToken): ProviderResult<InteractiveSession>;
 		resolveRequest(session: InteractiveSession, context: InteractiveSessionRequestArgs | string, token: CancellationToken): ProviderResult<InteractiveRequest>;
-		provideResponse?(request: InteractiveRequest, token: CancellationToken): ProviderResult<InteractiveResponse>;
-		provideResponseWithProgress?(request: InteractiveRequest, progress: Progress<InteractiveProgress>, token: CancellationToken): ProviderResult<InteractiveResponseForProgress>;
+		provideResponseWithProgress(request: InteractiveRequest, progress: Progress<InteractiveProgress>, token: CancellationToken): ProviderResult<InteractiveResponseForProgress>;
 	}
 
 	export namespace interactive {
