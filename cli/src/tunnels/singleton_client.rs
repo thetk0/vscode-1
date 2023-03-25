@@ -11,10 +11,12 @@ use std::{
 	thread,
 };
 
+use const_format::concatcp;
 use tokio::sync::mpsc;
 
 use crate::{
 	async_pipe::{socket_stream_split, AsyncPipe},
+	constants::IS_INTERACTIVE_CLI,
 	json_rpc::{new_json_rpc, start_json_rpc},
 	log,
 	tunnels::protocol::EmptyObject,
@@ -34,6 +36,19 @@ struct SingletonServerContext {
 	exit_entirely: Arc<AtomicBool>,
 }
 
+const CONTROL_INSTRUCTIONS_COMMON: &str =
+	"Connected to an existing tunnel process running on this machine. You can press:
+
+- \"x\" + Enter to stop the tunnel and exit
+- \"r\" + Enter to restart the tunnel
+";
+
+const CONTROL_INSTRUCTIONS_INTERACTIVE: &str = concatcp!(
+	CONTROL_INSTRUCTIONS_COMMON,
+	"- Ctrl+C to detach
+"
+);
+
 /// Serves a client singleton. Returns true if the process should exit after
 /// this returns, instead of trying to start a tunnel.
 pub async fn start_singleton_client(args: SingletonClientArgs) -> bool {
@@ -50,6 +65,8 @@ pub async fn start_singleton_client(args: SingletonClientArgs) -> bool {
 	thread::spawn(move || {
 		let mut input = String::new();
 		loop {
+			input.truncate(0);
+
 			match std::io::stdin().read_line(&mut input) {
 				Err(_) | Ok(0) => return, // EOF or not a tty
 				_ => {}
@@ -77,6 +94,19 @@ pub async fn start_singleton_client(args: SingletonClientArgs) -> bool {
 		c.exit_entirely.store(true, Ordering::SeqCst);
 		Ok(())
 	});
+
+	rpc.register_sync(
+		protocol::singleton::METHOD_LOG_REPLY_DONE,
+		|_: EmptyObject, c| {
+			c.log.result(if *IS_INTERACTIVE_CLI {
+				CONTROL_INSTRUCTIONS_INTERACTIVE
+			} else {
+				CONTROL_INSTRUCTIONS_COMMON
+			});
+
+			Ok(())
+		},
+	);
 
 	rpc.register_sync(
 		protocol::singleton::METHOD_LOG,
