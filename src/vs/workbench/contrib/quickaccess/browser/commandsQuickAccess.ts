@@ -42,6 +42,7 @@ import { IInteractiveSessionWidgetService } from 'vs/workbench/contrib/interacti
 export class CommandsQuickAccessProvider extends AbstractEditorCommandsQuickAccessProvider {
 	private static SEMANTIC_SIMILARITY_MAX_PICKS = 3;
 	private static SEMANTIC_SIMILARITY_THRESHOLD = 0.8;
+	private static SEMANTIC_SIMILARITY_DEBOUNCE = 200;
 
 	// TODO: bring this back once we have a chosen strategy for FastAndSlowPicks where Fast is also Promise based
 	// If extensions are not yet registered, we wait for a little moment to give them
@@ -84,9 +85,10 @@ export class CommandsQuickAccessProvider extends AbstractEditorCommandsQuickAcce
 		super({
 			showAlias: !Language.isDefaultVariant(),
 			noResultsPick: (filter) => {
-				return this.interactiveSessionService.getProviderIds().length
+				const info = this.interactiveSessionService.getProviderInfos()[0];
+				return info
 					? {
-						label: localize('askXInInteractiveSession', "Ask '{0}' in an Interactive Session", filter),
+						label: localize('askXInInteractiveSession', "Ask {0} '{1}'", info.displayName, filter),
 						commandId: AskInInteractiveAction.ID,
 						accept: () => commandService.executeCommand(AskInInteractiveAction.ID, filter)
 					}
@@ -157,7 +159,7 @@ export class CommandsQuickAccessProvider extends AbstractEditorCommandsQuickAcce
 		let scores: number[];
 		try {
 			// Wait a bit to see if the user is still typing
-			await timeout(800, token);
+			await timeout(CommandsQuickAccessProvider.SEMANTIC_SIMILARITY_DEBOUNCE, token);
 			scores = await this.semanticSimilarityService.getSimilarityScore(filter, format, token);
 		} catch (e) {
 			return [];
@@ -309,15 +311,16 @@ export class AskInInteractiveAction extends Action2 {
 		}
 
 		let providerId: string;
-		switch (interactiveSessionService.getProviderIds().length) {
+		const providerInfos = interactiveSessionService.getProviderInfos();
+		switch (providerInfos.length) {
 			case 0:
 				throw new Error('No interactive session provider found.');
 			case 1:
-				providerId = interactiveSessionService.getProviderIds()[0];
+				providerId = providerInfos[0].id;
 				break;
 			default:
 				logService.warn('Multiple interactive session providers found. Using the first one.');
-				providerId = interactiveSessionService.getProviderIds()[0];
+				providerId = providerInfos[0].id;
 				break;
 		}
 
