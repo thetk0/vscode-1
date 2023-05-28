@@ -35,6 +35,8 @@ import { ChatWidgetHistoryService, IChatWidgetHistoryService } from 'vs/workbenc
 import { IEditorResolverService, RegisteredEditorPriority } from 'vs/workbench/services/editor/common/editorResolverService';
 import { LifecyclePhase } from 'vs/workbench/services/lifecycle/common/lifecycle';
 import '../common/chatColors';
+import { registerMoveActions } from 'vs/workbench/contrib/chat/browser/actions/chatMoveActions';
+import { registerClearActions } from 'vs/workbench/contrib/chat/browser/actions/chatClearActions';
 
 // Register configuration
 const configurationRegistry = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration);
@@ -128,6 +130,8 @@ registerChatTitleActions();
 registerChatExecuteActions();
 registerChatQuickQuestionActions();
 registerChatExportActions();
+registerMoveActions();
+registerClearActions();
 
 registerSingleton(IChatService, ChatService, InstantiationType.Delayed);
 registerSingleton(IChatContributionService, ChatContributionService, InstantiationType.Delayed);
