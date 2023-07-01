@@ -34,6 +34,7 @@ import 'vs/css!./testingOutputPeek';
 import { ICodeEditor, IDiffEditorConstructionOptions, isCodeEditor } from 'vs/editor/browser/editorBrowser';
 import { EditorAction2 } from 'vs/editor/browser/editorExtensions';
 import { ICodeEditorService } from 'vs/editor/browser/services/codeEditorService';
+import { CodeEditorWidget } from 'vs/editor/browser/widget/codeEditorWidget';
 import { DiffEditorWidget } from 'vs/editor/browser/widget/diffEditorWidget';
 import { EmbeddedCodeEditorWidget, EmbeddedDiffEditorWidget } from 'vs/editor/browser/widget/embeddedCodeEditorWidget';
 import { IDiffEditorOptions, IEditorOptions } from 'vs/editor/common/config/editorOptions';
@@ -729,7 +730,8 @@ class TestResultsViewContent extends Disposable {
 		this.contentProviders = [
 			this._register(this.instantiationService.createInstance(DiffContentProvider, this.editor, messageContainer)),
 			this._register(this.instantiationService.createInstance(MarkdownTestMessagePeek, messageContainer)),
-			this._register(this.instantiationService.createInstance(PlainTextMessagePeek, messageContainer, isInPeekView)),
+			this._register(this.instantiationService.createInstance(TerminalMessagePeek, messageContainer, isInPeekView)),
+			this._register(this.instantiationService.createInstance(PlainTextMessagePeek, this.editor, messageContainer)),
 		];
 
 		const treeContainer = dom.append(containerElement, dom.$('.test-output-peek-tree'));
@@ -1157,8 +1159,67 @@ class MarkdownTestMessagePeek extends Disposable implements IPeekOutputRenderer 
 	}
 }
 
-
 class PlainTextMessagePeek extends Disposable implements IPeekOutputRenderer {
+	private readonly widget = this._register(new MutableDisposable<CodeEditorWidget>());
+	private readonly model = this._register(new MutableDisposable());
+	private dimension?: dom.IDimension;
+
+	constructor(
+		private readonly editor: ICodeEditor | undefined,
+		private readonly container: HTMLElement,
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
+		@ITextModelService private readonly modelService: ITextModelService,
+	) {
+		super();
+	}
+
+	public async update(subject: InspectSubject) {
+		if (!(subject instanceof MessageSubject)) {
+			return this.clear();
+		}
+
+		const message = subject.messages[subject.messageIndex];
+		if (isDiffable(message) || typeof message.message !== 'string') {
+			return this.clear();
+		}
+
+
+		const modelRef = this.model.value = await this.modelService.createModelReference(subject.messageUri);
+		if (!this.widget.value) {
+			this.widget.value = this.editor ? this.instantiationService.createInstance(
+				EmbeddedCodeEditorWidget,
+				this.container,
+				commonEditorOptions,
+				{},
+				this.editor,
+			) : this.instantiationService.createInstance(
+				CodeEditorWidget,
+				this.container,
+				commonEditorOptions,
+				{ isSimpleWidget: true }
+			);
+
+			if (this.dimension) {
+				this.widget.value.layout(this.dimension);
+			}
+		}
+
+		this.widget.value.setModel(modelRef.object.textEditorModel);
+		this.widget.value.updateOptions(commonEditorOptions);
+	}
+
+	private clear() {
+		this.model.clear();
+		this.widget.clear();
+	}
+
+	public layout(dimensions: dom.IDimension) {
+		this.dimension = dimensions;
+		this.widget.value?.layout(dimensions);
+	}
+}
+
+class TerminalMessagePeek extends Disposable implements IPeekOutputRenderer {
 	private dimensions?: dom.IDimension;
 	private readonly terminalCwd = this._register(new MutableObservableValue<string>(''));
 
@@ -1224,46 +1285,36 @@ class PlainTextMessagePeek extends Disposable implements IPeekOutputRenderer {
 
 	public async update(subject: InspectSubject) {
 		this.outputDataListener.clear();
-
-		if (subject instanceof MessageSubject) {
-			const message = subject.messages[subject.messageIndex];
-			if (isDiffable(message) || typeof message.message !== 'string') {
-				return this.clear();
-			}
-
-			this.updateCwd(subject.test.uri);
-			const terminal = await this.makeTerminal();
-			terminal.write(message.message);
-			this.layoutTerminal(terminal);
-			this.attachTerminalToDom(terminal);
-		} else {
-			const result = this.resultService.getResult(subject.resultId);
-			const task = result?.tasks[subject.taskIndex];
-			if (!task) {
-				return this.clear();
-			}
-
-			// Update the cwd and use the first test to try to hint at the correct cwd,
-			// but often this will fall back to the first workspace folder.
-			this.updateCwd(Iterable.find(result.tests, t => !!t.item.uri)?.item.uri);
-
-			const terminal = await this.makeTerminal();
-			if (result instanceof LiveTestResult) {
-				let hadData = false;
-				for (const buffer of task.output.buffers) {
-					hadData ||= buffer.byteLength > 0;
-					terminal.write(buffer.buffer);
-				}
-				if (!hadData && !task.running) {
-					this.writeNotice(terminal, localize('runNoOutout', 'The test run did not record any output.'));
-				}
-			} else {
-				this.writeNotice(terminal, localize('runNoOutputForPast', 'Test output is only available for new test runs.'));
-			}
-
-			this.attachTerminalToDom(terminal);
-			this.outputDataListener.value = task.output.onDidWriteData(e => terminal.write(e.buffer));
+		if (!(subject instanceof TaskSubject)) {
+			return this.clear();
 		}
+
+		const result = this.resultService.getResult(subject.resultId);
+		const task = result?.tasks[subject.taskIndex];
+		if (!task) {
+			return this.clear();
+		}
+
+		// Update the cwd and use the first test to try to hint at the correct cwd,
+		// but often this will fall back to the first workspace folder.
+		this.updateCwd(Iterable.find(result.tests, t => !!t.item.uri)?.item.uri);
+
+		const terminal = await this.makeTerminal();
+		if (result instanceof LiveTestResult) {
+			let hadData = false;
+			for (const buffer of task.output.buffers) {
+				hadData ||= buffer.byteLength > 0;
+				terminal.write(buffer.buffer);
+			}
+			if (!hadData && !task.running) {
+				this.writeNotice(terminal, localize('runNoOutout', 'The test run did not record any output.'));
+			}
+		} else {
+			this.writeNotice(terminal, localize('runNoOutputForPast', 'Test output is only available for new test runs.'));
+		}
+
+		this.attachTerminalToDom(terminal);
+		this.outputDataListener.value = task.output.onDidWriteData(e => terminal.write(e.buffer));
 	}
 
 	private updateCwd(testUri?: URI) {
@@ -1619,7 +1670,7 @@ class OutputPeekTree extends Disposable {
 			taskChildrenToUpdate.clear();
 		}, 300));
 
-		const handleNewResults = (result: LiveTestResult) => {
+		const attachToResults = (result: LiveTestResult) => {
 			const resultNode = cc.get(result)! as TestResultElement;
 			const disposable = new DisposableStore();
 			disposable.add(result.onNewTask(() => {
@@ -1662,7 +1713,7 @@ class OutputPeekTree extends Disposable {
 				disposable.dispose();
 			}));
 
-			this.tree.expand(resultNode, true);
+			return resultNode;
 		};
 
 		this._register(results.onResultsChanged(e => {
@@ -1686,7 +1737,7 @@ class OutputPeekTree extends Disposable {
 					this.tree.collapse(child.element, false);
 				}
 
-				handleNewResults(e.started);
+				this.tree.expand(attachToResults(e.started), true);
 			}
 		}));
 
@@ -1698,7 +1749,7 @@ class OutputPeekTree extends Disposable {
 			}
 		};
 
-		this._register(onDidReveal(({ subject, preserveFocus = false }) => {
+		this._register(onDidReveal(async ({ subject, preserveFocus = false }) => {
 			if (subject instanceof TaskSubject) {
 				const resultItem = this.tree.getNode(null).children.find(c => (c.element as TestResultElement)?.id === subject.resultId);
 				if (resultItem) {
@@ -1747,6 +1798,11 @@ class OutputPeekTree extends Disposable {
 		this._register(this.tree.onContextMenu(e => this.onContextMenu(e)));
 
 		this.tree.setChildren(null, getRootChildren());
+		for (const result of results.results) {
+			if (!result.completedAt && result instanceof LiveTestResult) {
+				attachToResults(result);
+			}
+		}
 	}
 
 	public layout(height: number, width: number) {
@@ -1829,8 +1885,6 @@ class TestRunElementRenderer implements ICompressibleTreeRenderer<ITreeElement, 
 
 	/** @inheritdoc */
 	public renderElement(element: ITreeNode<ITreeElement, FuzzyScore>, _index: number, templateData: TemplateData): void {
-		templateData.elementDisposable.clear();
-		templateData.elementDisposable.add(element.element.onDidChange(() => this.doRender(element.element, templateData)));
 		this.doRender(element.element, templateData);
 	}
 
@@ -1839,7 +1893,15 @@ class TestRunElementRenderer implements ICompressibleTreeRenderer<ITreeElement, 
 		templateData.templateDisposable.dispose();
 	}
 
+	/** Called to render a new element */
 	private doRender(element: ITreeElement, templateData: TemplateData) {
+		templateData.elementDisposable.clear();
+		templateData.elementDisposable.add(element.onDidChange(() => this.doRender(element, templateData)));
+		this.doRenderInner(element, templateData);
+	}
+
+	/** Called, and may be re-called, to render or re-render an element */
+	private doRenderInner(element: ITreeElement, templateData: TemplateData) {
 		if (element.labelWithIcons) {
 			dom.reset(templateData.label, ...element.labelWithIcons);
 		} else if (element.description) {
