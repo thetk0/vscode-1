@@ -4,8 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import { getMarkdownLink } from './shared';
-
+import { externalUriSchemes, createEditAddingLinksForUriList } from './shared';
 class PasteLinkEditProvider implements vscode.DocumentPasteEditProvider {
 
 	readonly id = 'insertMarkdownLink';
@@ -15,25 +14,27 @@ class PasteLinkEditProvider implements vscode.DocumentPasteEditProvider {
 		dataTransfer: vscode.DataTransfer,
 		token: vscode.CancellationToken,
 	): Promise<vscode.DocumentPasteEdit | undefined> {
-		const enabled = vscode.workspace.getConfiguration('markdown', document).get('editor.pasteUrlAsFormattedLink.enabled', true);
-		if (!enabled) {
+		const enabled = vscode.workspace.getConfiguration('markdown', document).get<'always' | 'smart' | 'never'>('editor.pasteUrlAsFormattedLink.enabled', 'smart');
+		if (enabled === 'never') {
 			return;
 		}
 
-		// Check if dataTransfer contains a URL
 		const item = dataTransfer.get('text/plain');
-		try {
-			new URL(await item?.value);
-		} catch (error) {
+		const urlList = await item?.asString();
+
+		if (urlList === undefined) {
+			return;
+		}
+
+		if (!validateLink(urlList)) {
 			return;
 		}
 
 		const uriEdit = new vscode.DocumentPasteEdit('', this.id, '');
-		const urlList = await item?.asString();
 		if (!urlList) {
 			return undefined;
 		}
-		const pasteEdit = await getMarkdownLink(document, ranges, urlList, token);
+		const pasteEdit = await createEditAddingLinksForUriList(document, ranges, urlList, token, true);
 		if (!pasteEdit) {
 			return;
 		}
@@ -42,6 +43,14 @@ class PasteLinkEditProvider implements vscode.DocumentPasteEditProvider {
 		uriEdit.additionalEdit = pasteEdit.additionalEdits;
 		return uriEdit;
 	}
+}
+
+export function validateLink(urlList: string): boolean {
+	const url = urlList?.split(/\s+/);
+	if (url.length > 1 || !externalUriSchemes.includes(vscode.Uri.parse(url[0]).scheme)) {
+		return false;
+	}
+	return true;
 }
 
 export function registerLinkPasteSupport(selector: vscode.DocumentSelector,) {
