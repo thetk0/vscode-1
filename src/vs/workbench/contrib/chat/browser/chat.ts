@@ -35,8 +35,11 @@ export interface IChatWidgetService {
 
 export interface IQuickChatService {
 	readonly _serviceBrand: undefined;
-	toggle(providerId: string, query?: string): void;
+	readonly onDidClose: Event<void>;
+	readonly enabled: boolean;
+	toggle(providerId?: string, query?: string): void;
 	focus(): void;
+	open(): void;
 	close(): void;
 	openInChatView(): void;
 }
@@ -78,6 +81,7 @@ export type IChatWidgetViewContext = IChatViewViewContext | IChatResourceViewCon
 
 export interface IChatWidget {
 	readonly onDidChangeViewModel: Event<void>;
+	readonly onDidAcceptInput: Event<void>;
 	readonly viewContext: IChatWidgetViewContext;
 	readonly viewModel: IChatViewModel | undefined;
 	readonly inputEditor: ICodeEditor;
@@ -87,9 +91,11 @@ export interface IChatWidget {
 	focus(item: ChatTreeItem): void;
 	moveFocus(item: ChatTreeItem, type: 'next' | 'previous'): void;
 	getFocus(): ChatTreeItem | undefined;
+	updateInput(query?: string): void;
 	acceptInput(query?: string): void;
 	focusLastMessage(): void;
 	focusInput(): void;
+	hasInputFocus(): boolean;
 	getSlashCommands(): Promise<ISlashCommand[] | undefined>;
 	getCodeBlockInfoForEditor(uri: URI): IChatCodeBlockInfo | undefined;
 	getCodeBlockInfosForResponse(response: IChatResponseViewModel): IChatCodeBlockInfo[];
