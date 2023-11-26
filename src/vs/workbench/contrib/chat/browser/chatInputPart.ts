@@ -116,12 +116,14 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		return localize('chatInput', "Chat Input");
 	}
 
-	setState(providerId: string, inputValue: string): void {
+	setState(providerId: string, inputValue: string | undefined): void {
 		this.providerId = providerId;
 		const history = this.historyService.getHistory(providerId);
 		this.history = new HistoryNavigator(history, 50);
 
-		this.setValue(inputValue);
+		if (typeof inputValue === 'string') {
+			this.setValue(inputValue);
+		}
 	}
 
 	get element(): HTMLElement {
@@ -160,11 +162,13 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		return this._inputEditor.hasWidgetFocus();
 	}
 
-	async acceptInput(query?: string): Promise<void> {
-		const editorValue = this._inputEditor.getValue();
-		if (!query && editorValue) {
-			// Followups and programmatic messages don't go to history
-			this.history.add(editorValue);
+	/**
+	 * Reset the input and update history.
+	 * @param userQuery If provided, this will be added to the history. Followups and programmatic queries should not be passed.
+	 */
+	async acceptInput(userQuery?: string): Promise<void> {
+		if (userQuery) {
+			this.history.add(userQuery);
 		}
 
 		if (this.accessibilityService.isScreenReaderOptimized() && isMacintosh) {

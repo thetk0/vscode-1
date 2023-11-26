@@ -10,7 +10,7 @@ import { ActionBar } from 'vs/base/browser/ui/actionbar/actionbar';
 import { Button } from 'vs/base/browser/ui/button/button';
 import { ITreeElement } from 'vs/base/browser/ui/tree/tree';
 import { Action } from 'vs/base/common/actions';
-import { Delayer, IntervalTimer, ThrottledDelayer } from 'vs/base/common/async';
+import { Delayer, ThrottledDelayer } from 'vs/base/common/async';
 import { CancellationToken, CancellationTokenSource } from 'vs/base/common/cancellation';
 import { fromNow } from 'vs/base/common/date';
 import { isCancellationError } from 'vs/base/common/errors';
@@ -62,11 +62,10 @@ import { ISettingOverrideClickEvent } from 'vs/workbench/contrib/preferences/bro
 import { ConfigurationScope, Extensions, IConfigurationRegistry } from 'vs/platform/configuration/common/configurationRegistry';
 import { Registry } from 'vs/platform/registry/common/platform';
 import { defaultButtonStyles } from 'vs/platform/theme/browser/defaultStyles';
-import { IWorkbenchAssignmentService } from 'vs/workbench/services/assignment/common/assignmentService';
 import { IProductService } from 'vs/platform/product/common/productService';
-import { IEnvironmentService } from 'vs/platform/environment/common/environment';
 import { registerNavigableContainer } from 'vs/workbench/browser/actions/widgetNavigationCommands';
 import { IEditorProgressService } from 'vs/platform/progress/common/progress';
+import { IExtensionManifest } from 'vs/platform/extensions/common/extensions';
 
 
 export const enum SettingsFocusContext {
@@ -237,9 +236,7 @@ export class SettingsEditor2 extends EditorPane {
 		@IExtensionService private readonly extensionService: IExtensionService,
 		@ILanguageService private readonly languageService: ILanguageService,
 		@IExtensionManagementService extensionManagementService: IExtensionManagementService,
-		@IWorkbenchAssignmentService private readonly workbenchAssignmentService: IWorkbenchAssignmentService,
 		@IProductService private readonly productService: IProductService,
-		@IEnvironmentService private readonly environmentService: IEnvironmentService,
 		@IExtensionGalleryService private readonly extensionGalleryService: IExtensionGalleryService,
 		@IEditorProgressService private readonly editorProgressService: IEditorProgressService,
 	) {
@@ -474,6 +471,8 @@ export class SettingsEditor2 extends EditorPane {
 	}
 
 	override focus(): void {
+		super.focus();
+
 		if (this._currentFocusContext === SettingsFocusContext.Search) {
 			if (!platform.isIOS) {
 				// #122044
@@ -493,8 +492,6 @@ export class SettingsEditor2 extends EditorPane {
 		} else if (this._currentFocusContext === SettingsFocusContext.TableOfContents) {
 			this.tocTree.domFocus();
 		}
-
-		super.focus();
 	}
 
 	protected override setEditorVisible(visible: boolean, group: IEditorGroup | undefined): void {
@@ -1291,11 +1288,18 @@ export class SettingsEditor2 extends EditorPane {
 		}
 
 		const additionalGroups: ISettingsGroup[] = [];
-		const toggleData = await getExperimentalExtensionToggleData(this.extensionGalleryService, this.workbenchAssignmentService, this.environmentService, this.productService);
+		const toggleData = await getExperimentalExtensionToggleData(this.extensionGalleryService, this.productService);
 		if (toggleData && groups.filter(g => g.extensionInfo).length) {
 			for (const key in toggleData.settingsEditorRecommendedExtensions) {
 				const extension = toggleData.recommendedExtensionsGalleryInfo[key];
-				const manifest = await this.extensionGalleryService.getManifest(extension, CancellationToken.None);
+				let manifest: IExtensionManifest | null = null;
+				try {
+					manifest = await this.extensionGalleryService.getManifest(extension, CancellationToken.None);
+				} catch (e) {
+					// Likely a networking issue.
+					// Skip adding a button for this extension to the Settings editor.
+					continue;
+				}
 				const contributesConfiguration = manifest?.contributes?.configuration;
 
 				let groupTitle: string | undefined;
@@ -1415,7 +1419,7 @@ export class SettingsEditor2 extends EditorPane {
 
 		// If the context view is focused, delay rendering settings
 		if (this.contextViewFocused()) {
-			const element = document.querySelector('.context-view');
+			const element = DOM.getWindow(this.settingsTree.getHTMLElement()).document.querySelector('.context-view');
 			if (element) {
 				this.scheduleRefresh(element as HTMLElement, key);
 			}
@@ -1530,6 +1534,7 @@ export class SettingsEditor2 extends EditorPane {
 	}
 
 	private async triggerSearch(query: string): Promise<void> {
+		const progressRunner = this.editorProgressService.show(true);
 		this.viewState.tagFilters = new Set<string>();
 		this.viewState.extensionFilters = new Set<string>();
 		this.viewState.featureFilters = new Set<string>();
@@ -1588,6 +1593,7 @@ export class SettingsEditor2 extends EditorPane {
 				this.splitView.setViewVisible(0, true);
 			}
 		}
+		progressRunner.done();
 	}
 
 	/**
@@ -1659,17 +1665,13 @@ export class SettingsEditor2 extends EditorPane {
 		const searchInProgress = this.searchInProgress = new CancellationTokenSource();
 		return this.localSearchDelayer.trigger(async () => {
 			if (searchInProgress && !searchInProgress.token.isCancellationRequested) {
-				const progressRunner = this.editorProgressService.show(true);
 				const result = await this.localFilterPreferences(query);
 				if (result && !result.exactMatch) {
 					this.remoteSearchThrottle.trigger(async () => {
 						if (searchInProgress && !searchInProgress.token.isCancellationRequested) {
-							await this.remoteSearchPreferences(query, this.searchInProgress!.token);
+							await this.remoteSearchPreferences(query, this.searchInProgress?.token);
 						}
-						progressRunner.done();
 					});
-				} else {
-					progressRunner.done();
 				}
 			}
 		});
@@ -1871,8 +1873,8 @@ class SyncControls extends Disposable {
 			this.updateLastSyncedTime();
 		}));
 
-		const updateLastSyncedTimer = this._register(new IntervalTimer());
-		updateLastSyncedTimer.cancelAndSet(() => this.updateLastSyncedTime(), 60 * 1000);
+		const updateLastSyncedTimer = this._register(new DOM.WindowIntervalTimer());
+		updateLastSyncedTimer.cancelAndSet(() => this.updateLastSyncedTime(), 60 * 1000, DOM.getWindow(container));
 
 		this.update();
 		this._register(this.userDataSyncService.onDidChangeStatus(() => {

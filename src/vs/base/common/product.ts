@@ -103,6 +103,7 @@ export interface IProductConfiguration {
 		readonly nlsBaseUrl: string;
 	};
 
+	readonly publishersByOrganisation?: IStringDictionary<string[]>;
 	readonly extensionRecommendations?: IStringDictionary<IExtensionRecommendations>;
 	readonly configBasedExtensionTips?: IStringDictionary<IConfigBasedExtensionTip>;
 	readonly exeBasedExtensionTips?: IStringDictionary<IExeBasedExtensionTip>;
@@ -293,8 +294,9 @@ export interface IAiGeneratedWorkspaceTrust {
 export interface IGitHubEntitlement {
 	providerId: string;
 	command: { title: string; titleWithoutPlaceHolder: string; action: string; when: string };
-	altCommand: { title: string; action: string; when: string };
 	entitlementUrl: string;
 	extensionId: string;
 	enablementKey: string;
+	confirmationMessage: string;
+	confirmationAction: string;
 }
